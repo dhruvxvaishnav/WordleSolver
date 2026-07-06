@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 
+const ANSWER_RAW: &str = include_str!("../data/answers.txt");
+const EXTRA_GUESSES_RAW: &str = include_str!("../data/valid_guesses_extra.txt");
+
 #[derive(Debug, PartialEq, Clone, Copy, Hash, Eq)]
 enum LetterResult {
     Green,
@@ -56,12 +59,13 @@ fn calculate_entropy(guess: &str, candidates: &[&str]) -> f64 {
 }
 
 fn main() {
-    let candidates = vec!["react", "crane", "roast", "adeiu", "board"];
+    let answers: Vec<&str> = ANSWER_RAW.lines().collect();
+    let extra_guesses: Vec<&str> = EXTRA_GUESSES_RAW.lines().collect();
 
-    for &g in &["crane", "adieu"] {
-        println!("----- Guess: {g} ------");
-        for &c in &candidates {
-            println!("{c}:{:?}", get_feedback(g, c));
-        }
-    }
+    let mut all_guesses: Vec<&str> = Vec::new();
+    all_guesses.extend(&answers);
+    all_guesses.extend(&extra_guesses);
+
+    println!("Answers: {}", answers.len());
+    println!("Total Guesses: {}", all_guesses.len());
 }
