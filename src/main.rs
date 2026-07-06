@@ -1,4 +1,6 @@
-#[derive(Debug, PartialEq, Clone, Copy)]
+use std::collections::HashMap;
+
+#[derive(Debug, PartialEq, Clone, Copy, Hash, Eq)]
 enum LetterResult {
     Green,
     Yellow,
@@ -34,7 +36,32 @@ fn get_feedback(guess: &str, answer: &str) -> [LetterResult; 5] {
     result
 }
 
+fn calculate_entropy(guess: &str, candidates: &[&str]) -> f64 {
+    let mut pattern_counts: HashMap<[LetterResult; 5], usize> = HashMap::new();
+
+    for &answer in candidates {
+        let pattern = get_feedback(guess, answer);
+        *pattern_counts.entry(pattern).or_insert(0) += 1;
+    }
+
+    let total = candidates.len() as f64;
+    let mut entropy = 0.0;
+
+    for &count in pattern_counts.values() {
+        let p = count as f64 / total;
+        entropy -= p * p.log2();
+    }
+
+    entropy
+}
+
 fn main() {
-    let result = get_feedback("crane", "react");
-    println!("{:?}", result)
+    let candidates = vec!["react", "crane", "roast", "adeiu", "board"];
+
+    for &g in &["crane", "adieu"] {
+        println!("----- Guess: {g} ------");
+        for &c in &candidates {
+            println!("{c}:{:?}", get_feedback(g, c));
+        }
+    }
 }
