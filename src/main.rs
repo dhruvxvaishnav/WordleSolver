@@ -113,8 +113,34 @@ fn parse_pattern(input: &str) -> [LetterResult; 5] {
     pattern
 }
 
+fn is_valid_hard_mode_guess(
+    guess: &[u8; 5],
+    prev_guess: &[u8; 5],
+    prev_pattern: &[LetterResult; 5],
+) -> bool {
+    for i in 0..5 {
+        match prev_pattern[i] {
+            LetterResult::Green => {
+                if guess[i] != prev_guess[i] {
+                    return false;
+                }
+            }
+            LetterResult::Yellow => {
+                if !guess.contains(&prev_guess[i]) {
+                    return false;
+                }
+            }
+            LetterResult::Gray => {}
+        }
+    }
+    true
+}
+
 fn run_solver(all_guesses: &[[u8; 5]], initial_answers: &[[u8; 5]]) {
     let mut candidates: Vec<[u8; 5]> = initial_answers.to_vec();
+    let mut valid_guesses: Vec<[u8; 5]> = all_guesses.to_vec();
+    let mut prev_guess: Option<[u8; 5]> = None;
+    let mut prev_pattern: Option<[LetterResult; 5]> = None;
 
     loop {
         if candidates.len() == 1 {
@@ -124,10 +150,13 @@ fn run_solver(all_guesses: &[[u8; 5]], initial_answers: &[[u8; 5]]) {
             );
             break;
         }
+        if let (Some(pg), Some(pp)) = (prev_guess, prev_pattern) {
+            valid_guesses.retain(|g| is_valid_hard_mode_guess(g, &pg, &pp));
+        }
 
-        let (best_word, best_entropy) = find_best_guess(all_guesses, &candidates);
+        let (best_word, best_entropy) = find_best_guess(&valid_guesses, &candidates);
         println!(
-            "Suggested guess: {} (entropy: {best_entropy}, candidates left: {})",
+            "Suggestes Guess: {} (entropy: {best_entropy}, candidates left: {})",
             std::str::from_utf8(&best_word).unwrap(),
             candidates.len()
         );
@@ -138,6 +167,8 @@ fn run_solver(all_guesses: &[[u8; 5]], initial_answers: &[[u8; 5]]) {
         let pattern = parse_pattern(input.trim());
 
         candidates = filter_candidates(&candidates, &best_word, &pattern);
+        prev_guess = Some(best_word);
+        prev_pattern = Some(pattern);
 
         if candidates.is_empty() {
             println!("No candidates left - Check your feedback input.");
