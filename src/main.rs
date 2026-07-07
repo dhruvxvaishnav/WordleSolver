@@ -127,8 +127,7 @@ fn run_solver(all_guesses: &[[u8; 5]], initial_answers: &[[u8; 5]]) {
 
         let (best_word, best_entropy) = find_best_guess(all_guesses, &candidates);
         println!(
-            "
-            Suggested guess: {} (entropy: {best_entropy}, candidates left: {})",
+            "Suggested guess: {} (entropy: {best_entropy}, candidates left: {})",
             std::str::from_utf8(&best_word).unwrap(),
             candidates.len()
         );
