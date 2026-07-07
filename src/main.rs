@@ -36,18 +36,35 @@ fn to_bytes(word: &str) -> [u8; 5] {
     [b[0], b[1], b[2], b[3], b[4]]
 }
 
+fn pattern_to_index(pattern: &[LetterResult; 5]) -> usize {
+    let mut index = 0;
+    for &r in pattern.iter() {
+        let digit = match r {
+            LetterResult::Gray => 0,
+            LetterResult::Yellow => 1,
+            LetterResult::Green => 2,
+        };
+        index = index * 3 + digit;
+    }
+    index
+}
+
 fn calculate_entropy(guess: &[u8; 5], candidates: &[[u8; 5]]) -> f64 {
-    let mut pattern_counts: HashMap<[LetterResult; 5], usize> = HashMap::new();
+    let mut pattern_counts = [0usize; 243];
 
     for answer in candidates {
         let pattern = get_feedback(guess, answer);
-        *pattern_counts.entry(pattern).or_insert(0) += 1;
+        let index = pattern_to_index(&pattern);
+        pattern_counts[index] += 1;
     }
 
     let total = candidates.len() as f64;
     let mut entropy = 0.0;
 
-    for &count in pattern_counts.values() {
+    for &count in pattern_counts.iter() {
+        if count == 0 {
+            continue;
+        }
         let p = count as f64 / total;
         entropy -= p * p.log2();
     }
@@ -78,9 +95,11 @@ fn main() {
     all_guesses.extend(&answers);
     all_guesses.extend(&extra_guesses);
 
+    println!("Answers Count: {}", answers.len());
+    println!("All Guesses Count: {}", all_guesses.len());
     let (best_word, best_entropy) = find_best_guess(&all_guesses, &answers);
-
-    let display_word = std::str::from_utf8(&best_word).unwrap_or("?????");
-    println!("Best first guess: {display_word} (entropy: {best_entropy})");
+    println!(
+        "Best first guess: {} (entropy: {best_entropy})",
+        std::str::from_utf8(&best_word).unwrap()
+    );
 }
-
