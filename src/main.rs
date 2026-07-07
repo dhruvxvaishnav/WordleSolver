@@ -136,7 +136,7 @@ fn is_valid_hard_mode_guess(
     true
 }
 
-fn run_solver(all_guesses: &[[u8; 5]], initial_answers: &[[u8; 5]]) {
+fn run_solver(all_guesses: &[[u8; 5]], initial_answers: &[[u8; 5]], hard_mode: bool) {
     let mut candidates: Vec<[u8; 5]> = initial_answers.to_vec();
     let mut valid_guesses: Vec<[u8; 5]> = all_guesses.to_vec();
     let mut prev_guess: Option<[u8; 5]> = None;
@@ -150,13 +150,19 @@ fn run_solver(all_guesses: &[[u8; 5]], initial_answers: &[[u8; 5]]) {
             );
             break;
         }
-        if let (Some(pg), Some(pp)) = (prev_guess, prev_pattern) {
+
+        if hard_mode && let (Some(pg), Some(pp)) = (prev_guess, prev_pattern) {
             valid_guesses.retain(|g| is_valid_hard_mode_guess(g, &pg, &pp));
         }
 
-        let (best_word, best_entropy) = find_best_guess(&valid_guesses, &candidates);
+        let guess_pool = if hard_mode {
+            &valid_guesses
+        } else {
+            all_guesses
+        };
+        let (best_word, best_entropy) = find_best_guess(guess_pool, &candidates);
         println!(
-            "Suggestes Guess: {} (entropy: {best_entropy}, candidates left: {})",
+            "Suggested Guess: {} (entropy: {best_entropy}, candidates left: {})",
             std::str::from_utf8(&best_word).unwrap(),
             candidates.len()
         );
@@ -171,7 +177,7 @@ fn run_solver(all_guesses: &[[u8; 5]], initial_answers: &[[u8; 5]]) {
         prev_pattern = Some(pattern);
 
         if candidates.is_empty() {
-            println!("No candidates left - Check your feedback input.");
+            println!("No Candidates Left - Check Your Feedback Input");
             break;
         }
     }
@@ -185,5 +191,9 @@ fn main() {
     all_guesses.extend(&answers);
     all_guesses.extend(&extra_guesses);
 
-    run_solver(&all_guesses, &answers);
+    println!("Hard mode? (y/n):");
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input).unwrap();
+    let hard_mode = input.trim().eq_ignore_ascii_case("y");
+    run_solver(&all_guesses, &answers, hard_mode);
 }
