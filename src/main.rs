@@ -1,4 +1,5 @@
 use rayon::prelude::*;
+use std::time::Instant;
 
 const ANSWER_RAW: &str = include_str!("../data/answers.txt");
 const EXTRA_GUESSES_RAW: &str = include_str!("../data/valid_guesses_extra.txt");
@@ -10,7 +11,45 @@ enum LetterResult {
     Gray,
 }
 
-fn get_feedback(guess: &[u8; 5], answer: &[u8]) -> [LetterResult; 5] {
+// Converts a 5-byte word array into a single packed u64
+fn word_to_u64(word: &[u8; 5]) -> u64 {
+    ((word[0] as u64) << 32)
+        | ((word[1] as u64) << 24)
+        | ((word[2] as u64) << 16)
+        | ((word[3] as u64) << 8)
+        | (word[4] as u64)
+}
+
+// Helper to print the u64 back as a readable string
+fn u64_to_string(packed: u64) -> String {
+    let bytes = [
+        ((packed >> 32) & 0xFF) as u8,
+        ((packed >> 24) & 0xFF) as u8,
+        ((packed >> 16) & 0xFF) as u8,
+        ((packed >> 8) & 0xFF) as u8,
+        (packed & 0xFF) as u8,
+    ];
+    String::from_utf8(bytes.to_vec()).unwrap()
+}
+
+fn get_feedback(guess_packed: u64, answer_packed: u64) -> [LetterResult; 5] {
+    // Unpack bytes on the fly via quick bitwise operations
+    let guess = [
+        ((guess_packed >> 32) & 0xFF) as u8,
+        ((guess_packed >> 24) & 0xFF) as u8,
+        ((guess_packed >> 16) & 0xFF) as u8,
+        ((guess_packed >> 8) & 0xFF) as u8,
+        (guess_packed & 0xFF) as u8,
+    ];
+
+    let answer = [
+        ((answer_packed >> 32) & 0xFF) as u8,
+        ((answer_packed >> 24) & 0xFF) as u8,
+        ((answer_packed >> 16) & 0xFF) as u8,
+        ((answer_packed >> 8) & 0xFF) as u8,
+        (answer_packed & 0xFF) as u8,
+    ];
+
     let mut result = [LetterResult::Gray; 5];
     let mut answer_used = [false; 5];
 
@@ -37,9 +76,9 @@ fn get_feedback(guess: &[u8; 5], answer: &[u8]) -> [LetterResult; 5] {
     result
 }
 
-fn to_bytes(word: &str) -> [u8; 5] {
+fn to_u64_from_str(word: &str) -> u64 {
     let b = word.as_bytes();
-    [b[0], b[1], b[2], b[3], b[4]]
+    word_to_u64(&[b[0], b[1], b[2], b[3], b[4]])
 }
 
 fn pattern_to_index(pattern: &[LetterResult; 5]) -> usize {
@@ -55,10 +94,10 @@ fn pattern_to_index(pattern: &[LetterResult; 5]) -> usize {
     index
 }
 
-fn calculate_entropy(guess: &[u8; 5], candidates: &[[u8; 5]]) -> f64 {
+fn calculate_entropy(guess: u64, candidates: &[u64]) -> f64 {
     let mut pattern_counts = [0usize; 243];
 
-    for answer in candidates {
+    for &answer in candidates {
         let pattern = get_feedback(guess, answer);
         let index = pattern_to_index(&pattern);
         pattern_counts[index] += 1;
@@ -78,21 +117,21 @@ fn calculate_entropy(guess: &[u8; 5], candidates: &[[u8; 5]]) -> f64 {
     entropy
 }
 
-fn find_best_guess(guesses: &[[u8; 5]], candidates: &[[u8; 5]]) -> ([u8; 5], f64) {
+fn find_best_guess(guesses: &[u64], candidates: &[u64]) -> (u64, f64) {
     guesses
         .par_iter()
-        .map(|&guess| (guess, calculate_entropy(&guess, candidates)))
-        .reduce(|| ([0u8; 5], -1.0), |a, b| if a.1 > b.1 { a } else { b })
+        .map(|&guess| (guess, calculate_entropy(guess, candidates)))
+        .reduce(|| (0u64, -1.0), |a, b| if a.1 > b.1 { a } else { b })
 }
 
 fn filter_candidates(
-    candidates: &[[u8; 5]],
-    guess: &[u8; 5],
+    candidates: &[u64],
+    guess: u64,
     observed_pattern: &[LetterResult; 5],
-) -> Vec<[u8; 5]> {
+) -> Vec<u64> {
     candidates
         .iter()
-        .filter(|&&answer| get_feedback(guess, &answer) == *observed_pattern)
+        .filter(|&&answer| get_feedback(guess, answer) == *observed_pattern)
         .copied()
         .collect()
 }
@@ -114,10 +153,25 @@ fn parse_pattern(input: &str) -> [LetterResult; 5] {
 }
 
 fn is_valid_hard_mode_guess(
-    guess: &[u8; 5],
-    prev_guess: &[u8; 5],
+    guess_packed: u64,
+    prev_guess_packed: u64,
     prev_pattern: &[LetterResult; 5],
 ) -> bool {
+    let guess = [
+        ((guess_packed >> 32) & 0xFF) as u8,
+        ((guess_packed >> 24) & 0xFF) as u8,
+        ((guess_packed >> 16) & 0xFF) as u8,
+        ((guess_packed >> 8) & 0xFF) as u8,
+        (guess_packed & 0xFF) as u8,
+    ];
+    let prev_guess = [
+        ((prev_guess_packed >> 32) & 0xFF) as u8,
+        ((prev_guess_packed >> 24) & 0xFF) as u8,
+        ((prev_guess_packed >> 16) & 0xFF) as u8,
+        ((prev_guess_packed >> 8) & 0xFF) as u8,
+        (prev_guess_packed & 0xFF) as u8,
+    ];
+
     for i in 0..5 {
         match prev_pattern[i] {
             LetterResult::Green => {
@@ -136,23 +190,22 @@ fn is_valid_hard_mode_guess(
     true
 }
 
-fn run_solver(all_guesses: &[[u8; 5]], initial_answers: &[[u8; 5]], hard_mode: bool) {
-    let mut candidates: Vec<[u8; 5]> = initial_answers.to_vec();
-    let mut valid_guesses: Vec<[u8; 5]> = all_guesses.to_vec();
-    let mut prev_guess: Option<[u8; 5]> = None;
+fn run_solver(all_guesses: &[u64], initial_answers: &[u64], hard_mode: bool) {
+    let mut candidates: Vec<u64> = initial_answers.to_vec();
+    let mut valid_guesses: Vec<u64> = all_guesses.to_vec();
+    let mut prev_guess: Option<u64> = None;
     let mut prev_pattern: Option<[LetterResult; 5]> = None;
 
     loop {
         if candidates.len() == 1 {
-            println!(
-                "Answer Found: {}",
-                std::str::from_utf8(&candidates[0]).unwrap()
-            );
+            println!("Answer Found: {}", u64_to_string(candidates[0]));
             break;
         }
 
-        if hard_mode && let (Some(pg), Some(pp)) = (prev_guess, prev_pattern) {
-            valid_guesses.retain(|g| is_valid_hard_mode_guess(g, &pg, &pp));
+        if hard_mode {
+            if let (Some(pg), Some(pp)) = (prev_guess, prev_pattern) {
+                valid_guesses.retain(|&g| is_valid_hard_mode_guess(g, pg, &pp));
+            }
         }
 
         let guess_pool = if hard_mode {
@@ -160,11 +213,17 @@ fn run_solver(all_guesses: &[[u8; 5]], initial_answers: &[[u8; 5]], hard_mode: b
         } else {
             all_guesses
         };
+
+        // Track time taken to compute entropy for this turn
+        let start_time = Instant::now();
         let (best_word, best_entropy) = find_best_guess(guess_pool, &candidates);
+        let duration = start_time.elapsed();
+
         println!(
-            "Suggested Guess: {} (entropy: {best_entropy}, candidates left: {})",
-            std::str::from_utf8(&best_word).unwrap(),
-            candidates.len()
+            "Suggested Guess: {} (entropy: {best_entropy:.4}, candidates left: {}, calculated in: {:?}",
+            u64_to_string(best_word),
+            candidates.len(),
+            duration
         );
 
         println!("Enter Feedback (G/Y/B x5):");
@@ -172,7 +231,7 @@ fn run_solver(all_guesses: &[[u8; 5]], initial_answers: &[[u8; 5]], hard_mode: b
         std::io::stdin().read_line(&mut input).unwrap();
         let pattern = parse_pattern(input.trim());
 
-        candidates = filter_candidates(&candidates, &best_word, &pattern);
+        candidates = filter_candidates(&candidates, best_word, &pattern);
         prev_guess = Some(best_word);
         prev_pattern = Some(pattern);
 
@@ -184,10 +243,10 @@ fn run_solver(all_guesses: &[[u8; 5]], initial_answers: &[[u8; 5]], hard_mode: b
 }
 
 fn main() {
-    let answers: Vec<[u8; 5]> = ANSWER_RAW.lines().map(to_bytes).collect();
-    let extra_guesses: Vec<[u8; 5]> = EXTRA_GUESSES_RAW.lines().map(to_bytes).collect();
+    let answers: Vec<u64> = ANSWER_RAW.lines().map(to_u64_from_str).collect();
+    let extra_guesses: Vec<u64> = EXTRA_GUESSES_RAW.lines().map(to_u64_from_str).collect();
 
-    let mut all_guesses: Vec<[u8; 5]> = Vec::new();
+    let mut all_guesses: Vec<u64> = Vec::new();
     all_guesses.extend(&answers);
     all_guesses.extend(&extra_guesses);
 
